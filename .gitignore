@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Секреты: в репозиторий попадает только .env.example
+.env
+.env.*
+!.env.example
+
+# Данные и логи живут локально
+data/
+logs/
