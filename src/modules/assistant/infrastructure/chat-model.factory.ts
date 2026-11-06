@@ -7,7 +7,6 @@ export interface ChatModelOptions {
   apiKey: string;
   model: string;
   baseUrl?: string;
-  maxRetries: number;
 }
 
 /** Подходит любому OpenAI-совместимому провайдеру: провайдер определяется базовым адресом и ключом. */
@@ -16,7 +15,7 @@ export function createChatModel(options: ChatModelOptions): BaseChatModel {
     apiKey: options.apiKey,
     model: options.model,
     temperature: 0, // одинаковые формулировки должны давать одинаковые category и key
-    maxRetries: options.maxRetries,
+    maxRetries: 0, // повторы выполняет retryModelCalls: встроенный не различает лимиты Groq
     configuration: { baseURL: options.baseUrl },
   });
 }

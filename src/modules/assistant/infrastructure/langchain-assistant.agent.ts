@@ -1,21 +1,20 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { GraphRecursionError } from '@langchain/langgraph';
 import { AIMessage, createAgent, createMiddleware, HumanMessage, ToolMessage } from 'langchain';
 import type { AssistantAgent } from '../application/assistant-agent.port';
 import { LlmError } from '../application/errors';
 import type { PreferencesService } from '../application/preferences.service';
-import { createPreferenceTools } from './preference.tools';
+import { toLlmError } from './llm-errors';
+import { ModelCallRetryOptions, retryModelCalls } from './model-call.retry';
+import { createPreferenceTools, SAVE_PREFERENCE_TOOL } from './preference.tools';
 import { buildFinalAnswerPrompt, SYSTEM_PROMPT } from './system-prompt';
 
-export interface AgentOptions {
+export interface AgentOptions extends ModelCallRetryOptions {
   timeoutMs: number;
-  /** После стольких обращений к инструментам модель обязана ответить тем, что уже получила. */
+  /** После стольких обращений на чтение модель обязана ответить тем, что уже получила. Запись не считается. */
   maxToolRounds: number;
   /** Страховка на случай, если модель не подчинится: вызов модели и инструментов считаются отдельными шагами. */
   recursionLimit: number;
 }
-
-const CONNECTION_ERROR = /connection|fetch failed|econnrefused|econnreset|enotfound|etimedout/i;
 
 export class LangchainAssistantAgent implements AssistantAgent {
   constructor(
@@ -27,6 +26,7 @@ export class LangchainAssistantAgent implements AssistantAgent {
   async reply(userId: string, message: string): Promise<string> {
     const stop = new AbortController();
     const timeout = AbortSignal.timeout(this.options.timeoutMs);
+    const signal = AbortSignal.any([stop.signal, timeout]);
     let storageFailure: { error: unknown } | undefined;
 
     const tools = createPreferenceTools(userId, this.preferences, (error) => {
@@ -37,14 +37,14 @@ export class LangchainAssistantAgent implements AssistantAgent {
       model: this.model,
       tools,
       systemPrompt: SYSTEM_PROMPT,
-      middleware: [forceAnswerAfterToolRounds(this.options.maxToolRounds)],
+      middleware: [forceAnswerAfterToolRounds(this.options.maxToolRounds), retryModelCalls(this.options, signal)],
     });
 
     let content: unknown;
     try {
       const result = await agent.invoke(
         { messages: [{ role: 'user', content: message }] },
-        { signal: AbortSignal.any([stop.signal, timeout]), recursionLimit: this.options.recursionLimit },
+        { signal, recursionLimit: this.options.recursionLimit },
       );
       content = result.messages.at(-1)?.content;
     } catch (error) {
@@ -75,10 +75,15 @@ function forceAnswerAfterToolRounds(maxToolRounds: number) {
   return createMiddleware({
     name: 'ForceAnswerAfterToolRounds',
     wrapModelCall: (request, handler) => {
-      const rounds = request.messages.filter(
-        (message) => AIMessage.isInstance(message) && (message.tool_calls?.length ?? 0) > 0,
+      // Запись является продвижением, а круг состоит из чтений. Если считать и её, потолок обрезает
+      // длинное сообщение: часть фактов теряется, а модель отвечает, что всё сохранено.
+      const readRounds = request.messages.filter(
+        (message) =>
+          AIMessage.isInstance(message) &&
+          (message.tool_calls?.length ?? 0) > 0 &&
+          !message.tool_calls?.some((call) => call.name === SAVE_PREFERENCE_TOOL),
       ).length;
-      if (rounds < maxToolRounds) {
+      if (readRounds < maxToolRounds) {
         return handler(request);
       }
 
@@ -91,43 +96,6 @@ function forceAnswerAfterToolRounds(maxToolRounds: number) {
       });
     },
   });
-}
-
-/** Ошибки, не похожие на сбой провайдера, остаются как есть и становятся internal_error: это дефект кода. */
-function toLlmError(error: unknown, timedOut: boolean): unknown {
-  if (!(error instanceof Error)) {
-    return error;
-  }
-  if (error instanceof GraphRecursionError) {
-    return new LlmError('llm_bad_response', { cause: error });
-  }
-
-  // Агент оборачивает ошибку модели, поэтому статус и настоящая причина лежат глубже по цепочке cause.
-  const chain = causeChain(error);
-  const cause = chain.at(-1) ?? error;
-  if (timedOut || chain.some((item) => /abort|timeout/i.test(item.name))) {
-    return new LlmError('llm_timeout', { cause });
-  }
-  const status = chain.map((item) => (item as { status?: unknown }).status).find((value) => typeof value === 'number');
-  if (status === 429) {
-    return new LlmError('llm_rate_limited', { cause });
-  }
-  if (status !== undefined) {
-    return new LlmError('llm_unavailable', { cause });
-  }
-
-  const description = chain.map((item) => `${item.name} ${item.message}`).join(' ');
-  return CONNECTION_ERROR.test(description) ? new LlmError('llm_unavailable', { cause }) : error;
-}
-
-function causeChain(error: Error): Error[] {
-  const chain: Error[] = [];
-  let current: unknown = error;
-  while (current instanceof Error && !chain.includes(current)) {
-    chain.push(current);
-    current = current.cause;
-  }
-  return chain;
 }
 
 function extractText(content: unknown): string {

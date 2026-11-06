@@ -7,6 +7,8 @@ import {
   PREFERENCES_REPOSITORY,
   PreferencesRepository,
 } from '../../src/modules/assistant/application/preferences.port';
+import { ASSISTANT_AGENT, AssistantAgent } from '../../src/modules/assistant/application/assistant-agent.port';
+import { CHAT_EXECUTOR } from '../../src/modules/assistant/application/chat-executor.port';
 import { CHAT_MODEL } from '../../src/modules/assistant/infrastructure/chat-model.factory';
 import type { ScriptedChatModel } from './scripted-chat-model';
 
@@ -20,6 +22,14 @@ export async function createTestApp(
     .useValue(model)
     .overrideProvider(PREFERENCES_REPOSITORY)
     .useValue(repository)
+    // Без Redis: очередь заменена прямым вызовом агента, сама очередь проверяется в npm run test:redis.
+    .overrideProvider(CHAT_EXECUTOR)
+    .useFactory({
+      factory: (agent: AssistantAgent) => ({
+        execute: (userId: string, message: string) => agent.reply(userId, message),
+      }),
+      inject: [ASSISTANT_AGENT],
+    })
     .compile();
 
   const app = moduleRef.createNestApplication<INestApplication<App>>({ logger: false });

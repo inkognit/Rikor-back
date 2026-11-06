@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import type { Response } from 'express';
-import { AppError } from './app.error';
+import { AppError, describeCause } from './app.error';
 import type { ApiEnvelope } from './response.interceptor';
 
 const HTTP_ERROR_CODES: Record<number, string> = {
@@ -25,7 +25,7 @@ export class AppExceptionFilter implements ExceptionFilter {
   private toResponse(exception: unknown): { status: number; body: ApiEnvelope<null> } {
     if (exception instanceof AppError) {
       this.log.warn(`${exception.code} cause=${describeCause(exception.cause)}`);
-      return { status: exception.httpStatus, body: envelope(exception.code, null) };
+      return { status: exception.httpStatus, body: envelope(exception.code, exception.meta) };
     }
 
     if (exception instanceof HttpException) {
@@ -41,15 +41,6 @@ export class AppExceptionFilter implements ExceptionFilter {
 
 function envelope(code: string, meta: Record<string, unknown> | null): ApiEnvelope<null> {
   return { success: false, data: null, meta, error: code };
-}
-
-/** Только имя и статус: текст ошибки провайдера может содержать фрагменты запроса пользователя. */
-function describeCause(cause: unknown): string {
-  if (!(cause instanceof Error)) {
-    return 'none';
-  }
-  const status = (cause as { status?: unknown }).status;
-  return typeof status === 'number' ? `${cause.name}:${status}` : cause.name;
 }
 
 function validationDetails(exception: HttpException): Record<string, unknown> | null {

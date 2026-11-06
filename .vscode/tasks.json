@@ -7,6 +7,25 @@
       "command": "npm run build",
       "group": "build",
       "problemMatcher": "$tsc"
+    },
+    {
+      "label": "infra: up",
+      "type": "shell",
+      "command": "docker compose up -d --wait",
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "panel": "shared" }
+    },
+    {
+      "label": "infra: down",
+      "type": "shell",
+      "command": "docker compose down",
+      "problemMatcher": []
+    },
+    {
+      "label": "prepare: infra + build",
+      "dependsOn": ["infra: up", "build"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
     }
   ]
 }

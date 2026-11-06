@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PreferencesRepository } from '../application/preferences.port';
-import { PreferenceInput, Preferences, SaveOutcome, upsertPreference } from '../domain/preferences';
+import { PreferenceInput, Preferences, SaveOutcome, upsertPreferences } from '../domain/preferences';
 
 interface UserFile {
   userId: string;
@@ -24,13 +24,13 @@ export class JsonFilePreferencesRepository implements PreferencesRepository {
     return this.enqueue(userId, () => this.read(userId));
   }
 
-  upsert(userId: string, input: PreferenceInput): Promise<SaveOutcome> {
+  upsert(userId: string, inputs: readonly PreferenceInput[]): Promise<SaveOutcome[]> {
     return this.enqueue(userId, async () => {
-      const { preferences, outcome } = upsertPreference(await this.read(userId), input);
-      if (outcome !== 'unchanged') {
+      const { preferences, outcomes } = upsertPreferences(await this.read(userId), inputs);
+      if (outcomes.some((outcome) => outcome !== 'unchanged')) {
         await this.write(userId, preferences);
       }
-      return outcome;
+      return outcomes;
     });
   }
 

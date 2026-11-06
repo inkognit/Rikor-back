@@ -1,0 +1,12 @@
+services:
+  redis:
+    image: redis:7-alpine
+    # noeviction требует BullMQ. Без сохранения на диск: в задачах лежит текст сообщений, а память хранится в data/.
+    command: ['redis-server', '--maxmemory-policy', 'noeviction', '--save', '', '--appendonly', 'no']
+    ports:
+      - '127.0.0.1:6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20

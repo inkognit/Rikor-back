@@ -3,7 +3,7 @@ import {
   PreferenceInput,
   Preferences,
   SaveOutcome,
-  upsertPreference,
+  upsertPreferences,
 } from '../../src/modules/assistant/domain/preferences';
 
 /** Фейк порта для unit-тестов: поведение настоящее, но без диска. */
@@ -14,9 +14,9 @@ export class InMemoryPreferencesRepository implements PreferencesRepository {
     return Promise.resolve(this.store.get(userId) ?? {});
   }
 
-  upsert(userId: string, input: PreferenceInput): Promise<SaveOutcome> {
-    const { preferences, outcome } = upsertPreference(this.store.get(userId) ?? {}, input);
+  upsert(userId: string, inputs: readonly PreferenceInput[]): Promise<SaveOutcome[]> {
+    const { preferences, outcomes } = upsertPreferences(this.store.get(userId) ?? {}, inputs);
     this.store.set(userId, preferences);
-    return Promise.resolve(outcome);
+    return Promise.resolve(outcomes);
   }
 }

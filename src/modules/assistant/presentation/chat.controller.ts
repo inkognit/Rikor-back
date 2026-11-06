@@ -17,11 +17,11 @@ export class ChatController {
   @ApiErrors({
     400: 'bad_request: тело запроса не является корректным JSON',
     422: 'validation_failed: неверные user_id или message',
-    429: 'llm_rate_limited: исчерпан лимит провайдера LLM, запрос можно повторить позже',
+    429: 'llm_rate_limited: исчерпан лимит провайдера LLM, время ожидания в meta.retry_after_seconds',
     500: 'internal_error: внутренняя ошибка, в том числе сбой хранилища',
     502: 'llm_bad_response: модель вернула пустой ответ или зациклилась на инструментах',
-    503: 'llm_unavailable: провайдер LLM недоступен или отклонил запрос',
-    504: 'llm_timeout: модель не ответила вовремя',
+    503: 'llm_unavailable: провайдер LLM недоступен или отклонил запрос; queue_unavailable: недоступен Redis',
+    504: 'llm_timeout: модель не ответила вовремя; chat_queue_timeout: сообщение не дождалось обработки в очереди',
   })
   async chat(@Body() dto: ChatDto): Promise<ChatResponse> {
     return new ChatResponse({ reply: await this.chatService.chat(dto.user_id, dto.message) });

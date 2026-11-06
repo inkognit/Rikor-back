@@ -43,6 +43,21 @@ export function upsertPreference(
   };
 }
 
+/** Пакетное сохранение: все записи применяются к одному состоянию, поэтому файл пишется один раз. */
+export function upsertPreferences(
+  current: Preferences,
+  inputs: readonly PreferenceInput[],
+): { preferences: Preferences; outcomes: SaveOutcome[] } {
+  const outcomes: SaveOutcome[] = [];
+  let preferences = current;
+  for (const input of inputs) {
+    const result = upsertPreference(preferences, input);
+    preferences = result.preferences;
+    outcomes.push(result.outcome);
+  }
+  return { preferences, outcomes };
+}
+
 /** Оглавление вычисляется из данных, поэтому не может с ними разойтись. */
 export function buildIndex(preferences: Preferences): CategoryIndexEntry[] {
   return Object.entries(preferences).map(([category, items]) => ({ category, keys: Object.keys(items) }));

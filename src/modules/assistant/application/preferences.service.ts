@@ -12,29 +12,36 @@ import type { PreferencesRepository } from './preferences.port';
 
 export type PreferencesView =
   | { view: 'index'; categories: CategoryIndexEntry[] }
-  | { view: 'category'; category: string; found: true; items: Readonly<Record<string, string>> }
-  | { view: 'category'; category: string; found: false; knownCategories: string[] };
+  | {
+      view: 'details';
+      found: Record<string, Readonly<Record<string, string>>>;
+      missing: string[];
+      knownCategories: string[];
+    };
 
 @Injectable()
 export class PreferencesService {
   constructor(@Inject(PREFERENCES_REPOSITORY) private readonly repository: PreferencesRepository) {}
 
-  save(userId: string, input: PreferenceInput): Promise<SaveOutcome> {
-    return this.repository.upsert(userId, input);
+  save(userId: string, inputs: readonly PreferenceInput[]): Promise<SaveOutcome[]> {
+    return this.repository.upsert(userId, inputs);
   }
 
-  /** Без категории возвращает оглавление, с категорией возвращает подробности. */
-  async read(userId: string, category?: string): Promise<PreferencesView> {
+  /** Без тем возвращает оглавление, с темами возвращает их значения одним ответом. */
+  async read(userId: string, categories?: readonly string[]): Promise<PreferencesView> {
     const preferences = await this.repository.load(userId);
     const index = buildIndex(preferences);
-    if (category === undefined) {
+    if (!categories?.length) {
       return { view: 'index', categories: index };
     }
 
-    const name = normalizeName(category);
-    const items = readCategory(preferences, name);
-    return items
-      ? { view: 'category', category: name, found: true, items }
-      : { view: 'category', category: name, found: false, knownCategories: index.map((entry) => entry.category) };
+    const names = [...new Set(categories.map(normalizeName))];
+    const entries = names.map((name) => [name, readCategory(preferences, name)] as const);
+    return {
+      view: 'details',
+      found: Object.fromEntries(entries.flatMap(([name, items]) => (items ? [[name, items] as const] : []))),
+      missing: entries.filter(([, items]) => items === null).map(([name]) => name),
+      knownCategories: index.map((entry) => entry.category),
+    };
   }
 }

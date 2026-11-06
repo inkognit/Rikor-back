@@ -35,10 +35,10 @@ describe('POST /chat', () => {
 
   /** Шаги модели на вопрос о напитке: оглавление, затем значения темы. */
   const scriptDrinkQuestion = (): void => {
-    model.enqueue(callTool(GET, {}), callTool(GET, { category: DRINK.category }), answerFromLastTool);
+    model.enqueue(callTool(GET, {}), callTool(GET, { categories: [DRINK.category] }), answerFromLastTool);
   };
   const scriptSaveDrink = (value: string): void => {
-    model.enqueue(callTool(GET, {}), callTool(SAVE, { ...DRINK, value }), say('Запомнил'));
+    model.enqueue(callTool(GET, {}), callTool(SAVE, { preferences: [{ ...DRINK, value }] }), say('Запомнил'));
   };
 
   beforeEach(async () => {
@@ -96,12 +96,12 @@ describe('POST /chat', () => {
     await chat('user-a', 'Я предпочитаю чай').expect(200);
 
     model.enqueue(
-      callTool(SAVE, { category: ' НАПИТКИ ', key: 'Предпочитаемый  напиток', value: 'чай' }),
+      callTool(SAVE, { preferences: [{ category: ' НАПИТКИ ', key: 'Предпочитаемый  напиток', value: 'чай' }] }),
       answerFromLastTool,
     );
     const repeated = await chat('user-a', 'Я же говорил, что предпочитаю чай').expect(200);
 
-    expect(replyOf(repeated)).toContain('"outcome":"unchanged"');
+    expect(replyOf(repeated)).toContain('"outcomes":["unchanged"]');
     expect(readSaved(savedFiles()[0] as string).preferences).toEqual({ напитки: { 'предпочитаемый напиток': 'чай' } });
   });
 
@@ -120,15 +120,18 @@ describe('POST /chat', () => {
     scriptSaveDrink('чай');
     await chat('user-a', 'Я предпочитаю чай').expect(200);
 
-    model.enqueue(callTool(GET, { category: 'машины' }), answerFromLastTool);
+    model.enqueue(callTool(GET, { categories: ['машины'] }), answerFromLastTool);
     const res = await chat('user-a', 'Какие машины мне нравятся?').expect(200);
 
-    expect(replyOf(res)).toContain('"found":false');
+    expect(replyOf(res)).toContain('"missing":["машины"]');
     expect(replyOf(res)).toContain('"knownCategories":["напитки"]');
   });
 
   it('user_id в аргументах инструмента не влияет на то, чья память изменится', async () => {
-    model.enqueue(callTool(SAVE, { ...DRINK, value: 'чай', user_id: 'victim' }), say('Запомнил'));
+    model.enqueue(
+      callTool(SAVE, { preferences: [{ ...DRINK, value: 'чай', user_id: 'victim' }], user_id: 'victim' }),
+      say('Запомнил'),
+    );
     await chat('attacker', 'Я предпочитаю чай').expect(200);
 
     expect(savedFiles()).toHaveLength(1);
@@ -161,7 +164,7 @@ describe('POST /chat', () => {
   });
 
   it('неверные аргументы инструмента возвращаются модели и ничего не сохраняют', async () => {
-    model.enqueue(callTool(SAVE, { ...DRINK, value: '   ' }), (messages) => {
+    model.enqueue(callTool(SAVE, { preferences: [{ ...DRINK, value: '   ' }] }), (messages) => {
       const toolMessage = messages.at(-1) as ToolMessage;
       expect(toolMessage.status).toBe('error');
       return say('Не удалось сохранить')(messages);
@@ -172,13 +175,66 @@ describe('POST /chat', () => {
     expect(() => savedFiles()).toThrow();
   });
 
+  it('один вызов читает значения нескольких тем', async () => {
+    model.enqueue(
+      callTool(SAVE, {
+        preferences: [
+          { category: 'хобби', key: 'любимое хобби', value: 'рыбалка' },
+          { ...DRINK, value: 'чай' },
+        ],
+      }),
+      say('Запомнил'),
+    );
+    await chat('user-a', 'Люблю рыбалку и чай').expect(200);
+
+    model.enqueue(callTool(GET, { categories: ['хобби', DRINK.category, 'машины'] }), answerFromLastTool);
+    const res = await chat('user-a', 'Что ты обо мне знаешь?').expect(200);
+
+    expect(replyOf(res)).toContain('рыбалка');
+    expect(replyOf(res)).toContain('чай');
+    expect(replyOf(res)).toContain('"missing":["машины"]');
+  });
+
+  it('один вызов сохраняет факты из разных тем', async () => {
+    model.enqueue(
+      callTool(SAVE, {
+        preferences: [
+          { category: 'о себе', key: 'имя', value: 'Миша' },
+          { category: 'хобби', key: 'любимое хобби', value: 'рыбалка' },
+          { ...DRINK, value: 'чай' },
+        ],
+      }),
+      say('Запомнил'),
+    );
+
+    await chat('user-a', 'Я Миша, люблю рыбалку и чай').expect(200);
+
+    expect(readSaved(savedFiles()[0] as string).preferences).toEqual({
+      'о себе': { имя: 'Миша' },
+      хобби: { 'любимое хобби': 'рыбалка' },
+      напитки: { 'предпочитаемый напиток': 'чай' },
+    });
+  });
+
+  it('потолок чтений не обрезает факты, которые модель сохраняет по одному', async () => {
+    const facts = Array.from({ length: 8 }, (_, index) => ({ category: 'о себе', key: `факт ${index}`, value: 'да' }));
+    model.enqueue(...facts.map((fact) => callTool(SAVE, { preferences: [fact] })), say('Запомнил'));
+
+    await chat('user-a', 'Длинный рассказ о себе').expect(200);
+
+    const stored = readSaved(savedFiles()[0] as string).preferences['о себе'] ?? {};
+    expect(Object.keys(stored)).toHaveLength(8);
+    expect(model.boundTools.every((tools) => tools.length === 2)).toBe(true);
+  });
+
   it('круг по памяти после сохранения заканчивается ответом, а не ошибкой', async () => {
     model.enqueue(
-      callTool(SAVE, { ...DRINK, value: 'чай' }),
-      callTool(GET, { category: DRINK.category }),
+      callTool(SAVE, { preferences: [{ ...DRINK, value: 'чай' }] }),
+      callTool(GET, { categories: [DRINK.category] }),
       callTool(GET, {}),
-      callTool(GET, { category: DRINK.category }),
+      callTool(GET, { categories: [DRINK.category] }),
       callTool(GET, {}),
+      callTool(GET, { categories: [DRINK.category] }),
       say('Запомнил'),
     );
 
@@ -186,7 +242,7 @@ describe('POST /chat', () => {
 
     expect(replyOf(res)).toBe('Запомнил');
     expect(readSaved(savedFiles()[0] as string).preferences).toEqual({ напитки: { 'предпочитаемый напиток': 'чай' } });
-    expect(model.boundTools.map((tools) => tools.length)).toEqual([2, 2, 2, 2, 2, 0]);
+    expect(model.boundTools.map((tools) => tools.length)).toEqual([2, 2, 2, 2, 2, 2, 0]);
   });
 
   it.each([
@@ -251,7 +307,7 @@ describe('POST /chat', () => {
       load: () => Promise.resolve({}),
       upsert: () => Promise.reject(new Error('disk full')),
     });
-    model.enqueue(callTool(SAVE, { ...DRINK, value: 'чай' }), say('Запомнил'));
+    model.enqueue(callTool(SAVE, { preferences: [{ ...DRINK, value: 'чай' }] }), say('Запомнил'));
 
     const res = await chat('user-a', 'Я предпочитаю чай').expect(500);
 

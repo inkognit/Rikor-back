@@ -17,6 +17,14 @@ export const envSchema = Joi.object({
   LLM_API_KEY: Joi.string().required(),
   LLM_MODEL: Joi.string().required(),
   LLM_BASE_URL: Joi.string().uri({ scheme: ['http', 'https'] }),
-  LLM_TIMEOUT_MS: Joi.number().integer().min(1000).default(60000),
-  LLM_MAX_RETRIES: Joi.number().integer().min(0).max(5).default(1),
+  LLM_TIMEOUT_MS: Joi.number().integer().min(1000).default(120000),
+  LLM_MAX_RETRIES: Joi.number().integer().min(0).max(5).default(3),
+  LLM_RETRY_MAX_WAIT_MS: Joi.number().integer().min(0).default(60000),
+
+  REDIS_URL: Joi.string()
+    .uri({ scheme: ['redis', 'rediss'] })
+    .default('redis://127.0.0.1:6379'),
+  CHAT_MAX_JOBS_PER_MINUTE: Joi.number().integer().min(1).default(4),
+  // Запрос не должен сдаться раньше, чем отработает агент, иначе ответ будет потерян.
+  CHAT_WAIT_TIMEOUT_MS: Joi.number().integer().min(Joi.ref('LLM_TIMEOUT_MS')).default(180000),
 });

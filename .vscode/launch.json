@@ -10,6 +10,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start:debug"],
       "cwd": "${workspaceFolder}",
+      "preLaunchTask": "infra: up",
       "autoAttachChildProcesses": true,
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
@@ -21,7 +22,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/dist/main.js",
       "cwd": "${workspaceFolder}",
-      "preLaunchTask": "build",
+      "preLaunchTask": "prepare: infra + build",
       "sourceMaps": true,
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "console": "integratedTerminal",
@@ -54,6 +55,17 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "test:e2e"],
       "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Тесты: очередь на настоящем Redis",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "test:redis"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "infra: up",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
     },
