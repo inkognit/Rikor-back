@@ -51,7 +51,7 @@ describe('Адаптер LLM по протоколу OpenAI', () => {
     new LangchainAssistantAgent(
       createChatModel({ apiKey: 'secret-key', model: 'test-model', baseUrl: url, maxRetries: 0 }),
       new PreferencesService(repository),
-      { timeoutMs, recursionLimit: 6 },
+      { timeoutMs, maxToolRounds: 2, recursionLimit: 8 },
     );
   const failureCode = async (agent: LangchainAssistantAgent): Promise<string> => {
     const error: unknown = await agent.reply('user-a', 'привет').then(
@@ -140,9 +140,27 @@ describe('Адаптер LLM по протоколу OpenAI', () => {
     expect(await failureCode(createAgent())).toBe('llm_bad_response');
   });
 
-  it('бесконечные вызовы инструментов останавливаются и дают llm_bad_response', async () => {
+  it('зациклившаяся модель получает запрос без инструментов и отвечает пользователю', async () => {
+    handler = (body, res) =>
+      sendJson(
+        res,
+        200,
+        body.tools?.length ? toolCall('get_preferences', {}) : completion({ content: 'Итоговый ответ' }),
+      );
+
+    const reply = await createAgent().reply('user-a', 'Какой напиток?');
+
+    expect(reply).toBe('Итоговый ответ');
+    expect(requests.map((request) => request.body.tools?.length ?? 0)).toEqual([2, 2, 0]);
+    const final = requests.at(-1)?.body;
+    expect(final?.messages.map((message) => message.role)).toEqual(['system', 'user']);
+    expect(JSON.stringify(final?.messages[0]?.content)).toContain('categories');
+    expect(JSON.stringify(final?.messages[0]?.content)).not.toContain('вызови');
+  });
+
+  it('модель, вызывающая инструменты и без их наличия, останавливается и даёт llm_bad_response', async () => {
     handler = (_body, res) => sendJson(res, 200, toolCall('get_preferences', {}));
     expect(await failureCode(createAgent())).toBe('llm_bad_response');
-    expect(requests.length).toBeLessThanOrEqual(6);
+    expect(requests.length).toBeLessThanOrEqual(8);
   });
 });

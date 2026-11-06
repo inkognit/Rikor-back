@@ -172,6 +172,23 @@ describe('POST /chat', () => {
     expect(() => savedFiles()).toThrow();
   });
 
+  it('круг по памяти после сохранения заканчивается ответом, а не ошибкой', async () => {
+    model.enqueue(
+      callTool(SAVE, { ...DRINK, value: 'чай' }),
+      callTool(GET, { category: DRINK.category }),
+      callTool(GET, {}),
+      callTool(GET, { category: DRINK.category }),
+      callTool(GET, {}),
+      say('Запомнил'),
+    );
+
+    const res = await chat('user-a', 'Я предпочитаю чай').expect(200);
+
+    expect(replyOf(res)).toBe('Запомнил');
+    expect(readSaved(savedFiles()[0] as string).preferences).toEqual({ напитки: { 'предпочитаемый напиток': 'чай' } });
+    expect(model.boundTools.map((tools) => tools.length)).toEqual([2, 2, 2, 2, 2, 0]);
+  });
+
   it.each([
     ['без user_id', { message: 'привет' }],
     ['без message', { user_id: 'user-a' }],

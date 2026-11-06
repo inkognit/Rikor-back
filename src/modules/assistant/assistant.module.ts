@@ -10,6 +10,7 @@ import { JsonFilePreferencesRepository } from './infrastructure/json-file-prefer
 import { LangchainAssistantAgent } from './infrastructure/langchain-assistant.agent';
 import { ChatController } from './presentation/chat.controller';
 
+const AGENT_MAX_TOOL_ROUNDS = 5;
 const AGENT_RECURSION_LIMIT = 16;
 
 @Module({
@@ -39,6 +40,7 @@ const AGENT_RECURSION_LIMIT = 16;
       useFactory: (model: BaseChatModel, preferences: PreferencesService, config: ConfigService) =>
         new LangchainAssistantAgent(model, preferences, {
           timeoutMs: config.getOrThrow<number>('LLM_TIMEOUT_MS'),
+          maxToolRounds: AGENT_MAX_TOOL_ROUNDS,
           recursionLimit: AGENT_RECURSION_LIMIT,
         }),
     },
